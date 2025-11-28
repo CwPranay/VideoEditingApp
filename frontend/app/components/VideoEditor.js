@@ -1,175 +1,179 @@
 import React, { useState } from "react";
-import { View, Text, Button, Image, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity, Image, StyleSheet, TextInput, ScrollView } from "react-native";
 import { Video } from "expo-av";
 import * as ImagePicker from "expo-image-picker";
-import Draggable from "react-native-draggable";
-import { v4 as uuidv4 } from "uuid";
 import apiClient from "../api/apiClient";
+import uuid from "react-native-uuid";
 
 export default function VideoEditor() {
-  const [videoUri, setVideoUri] = useState(null);
+  const [video, setVideo] = useState(null);
   const [overlays, setOverlays] = useState([]);
-  const [text, setText] = useState("");
+  const [textInput, setTextInput] = useState("");
 
+  // pick video
   const pickVideo = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
     });
-
-    if (!result.canceled) {
-      setVideoUri(result.assets[0].uri);
-    }
+    if (!result.canceled) setVideo(result.assets[0]);
   };
 
-  const addTextOverlay = () => {
+  // Add text overlay
+  const addText = () => {
+    if (!textInput) return;
     setOverlays([
       ...overlays,
       {
-        id: uuidv4(),
+        id: uuid.v4(),
         type: "text",
-        content: text || "Sample Text",
+        content: textInput,
         x: 50,
-        y: 50
-      }
+        y: 50,
+        start: 0,
+        end: 5,
+      },
     ]);
+    setTextInput("");
   };
 
-  const addImageOverlay = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
+  // Add image overlay
+  const addImage = async () => {
+    let pick = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
     });
-
-    if (!result.canceled) {
+    if (!pick.canceled) {
       setOverlays([
         ...overlays,
         {
-          id: uuidv4(),
+          id: uuid.v4(),
           type: "image",
-          content: result.assets[0].uri,
+          content: pick.assets[0].uri,
           x: 80,
           y: 80,
-        }
+          start: 0,
+          end: 5,
+        },
       ]);
     }
   };
 
-  // ---- SEND TO BACKEND ----
-  const submitToBackend = async () => {
-    if (!videoUri) return alert("Pick a video first!");
+  // Submit to backend
+  const submit = async () => {
+    if (!video) return alert("Pick a video first.");
 
-    let metadata = overlays.map(o => ({
-      id: o.id,
-      type: o.type,
-      content: o.content,
-      x: o.x,
-      y: o.y,
-      start_time: 0,
-      end_time: 5
-    }));
-
-    const form = new FormData();
-    form.append("file", {
-      uri: videoUri,
+    const formData = new FormData();
+    formData.append("file", {
+      uri: video.uri,
+      name: "video.mp4",
       type: "video/mp4",
-      name: "video.mp4"
     });
 
-    form.append("metadata", JSON.stringify(metadata));
+    formData.append("metadata", JSON.stringify(overlays));
 
-    const res = await apiClient.post("/upload", form, {
-      headers: { "Content-Type": "multipart/form-data" }
-    });
+    try {
+      await apiClient.post("/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-    alert("Uploaded! Job ID: " + res.data.job_id);
+      alert("Uploaded successfully!");
+    } catch (err) {
+      console.log(err);
+      alert("Upload failed.");
+    }
   };
 
   return (
-    <View style={styles.container}>
-
-      <TouchableOpacity style={styles.pickBtn} onPress={pickVideo}>
-        <Text style={styles.pickText}>Pick a Video</Text>
-      </TouchableOpacity>
-
-      {videoUri && (
-        <View style={styles.videoContainer}>
+    <ScrollView style={styles.container}>
+      
+      {/* Video preview */}
+      <View style={styles.videoBox}>
+        {video ? (
           <Video
-            source={{ uri: videoUri }}
-            style={styles.video}
+            source={{ uri: video.uri }}
+            style={{ width: "100%", height: "100%" }}
             useNativeControls
             resizeMode="contain"
           />
+        ) : (
+          <Text style={styles.placeholder}>No video selected</Text>
+        )}
 
-          {overlays.map((o) => (
-            <Draggable
-              key={o.id}
-              x={o.x}
-              y={o.y}
-              onDragRelease={(e, gesture) => {
-                o.x = gesture.moveX - 200;
-                o.y = gesture.moveY - 200;
-              }}
-            >
-              {o.type === "text" ? (
-                <Text style={styles.overlayText}>{o.content}</Text>
-              ) : (
-                <Image source={{ uri: o.content }} style={styles.overlayImage} />
-              )}
-            </Draggable>
-          ))}
-        </View>
-      )}
+        {/* Overlays preview */}
+        {overlays.map((item) => (
+          <View key={item.id} style={[styles.overlay, { top: item.y, left: item.x }]}>
+            {item.type === "text" && <Text style={styles.overlayText}>{item.content}</Text>}
+            {item.type === "image" && <Image source={{ uri: item.content }} style={styles.overlayImage} />}
+          </View>
+        ))}
+      </View>
 
-      <TouchableOpacity style={styles.smallBtn} onPress={addTextOverlay}>
+      {/* controls */}
+      <TouchableOpacity style={styles.btn} onPress={pickVideo}>
+        <Text style={styles.btnTxt}>Pick Video</Text>
+      </TouchableOpacity>
+
+      <TextInput
+        placeholder="Enter overlay text"
+        value={textInput}
+        onChangeText={setTextInput}
+        style={styles.input}
+      />
+
+      <TouchableOpacity style={styles.btn} onPress={addText}>
         <Text style={styles.btnTxt}>Add Text Overlay</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.smallBtn} onPress={addImageOverlay}>
+      <TouchableOpacity style={styles.btn} onPress={addImage}>
         <Text style={styles.btnTxt}>Add Image Overlay</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.submitBtn} onPress={submitToBackend}>
-        <Text style={styles.submitTxt}>Submit to Backend</Text>
+      <TouchableOpacity style={styles.submitBtn} onPress={submit}>
+        <Text style={styles.btnTxt}>Submit To Backend</Text>
       </TouchableOpacity>
-
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: "#f4f4f4", flex: 1 },
-  pickBtn: { backgroundColor: "#007bff", padding: 12, borderRadius: 8 },
-  pickText: { color: "white", textAlign: "center", fontWeight: "bold" },
-
-  videoContainer: {
-    marginTop: 20,
+  container: { padding: 14, backgroundColor: "#111" },
+  videoBox: {
     width: "100%",
-    height: 400,
-    backgroundColor: "#000",
+    height: 300,
+    backgroundColor: "#222",
+    marginBottom: 20,
     position: "relative",
   },
-
-  video: { width: "100%", height: "100%" },
+  placeholder: { color: "#888", textAlign: "center", marginTop: 120 },
+  overlay: {
+    position: "absolute",
+  },
   overlayText: {
     color: "yellow",
-    fontSize: 24,
     fontWeight: "bold",
-    backgroundColor: "rgba(0,0,0,0.3)",
+    fontSize: 20,
   },
-  overlayImage: { width: 80, height: 80 },
-
-  smallBtn: {
-    backgroundColor: "orange",
+  overlayImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+  },
+  input: {
+    backgroundColor: "#fff",
     padding: 10,
-    marginTop: 10,
-    borderRadius: 8,
+    borderRadius: 6,
+    marginBottom: 10,
   },
-  btnTxt: { textAlign: "center", color: "#fff" },
-
-  submitBtn: {
-    backgroundColor: "green",
+  btn: {
     padding: 12,
-    marginTop: 20,
-    borderRadius: 8,
+    backgroundColor: "#0277BD",
+    marginVertical: 5,
+    borderRadius: 6,
   },
-  submitTxt: { textAlign: "center", color: "white", fontWeight: "bold" },
+  submitBtn: {
+    padding: 14,
+    backgroundColor: "#00C853",
+    marginVertical: 15,
+    borderRadius: 6,
+  },
+  btnTxt: { color: "#fff", textAlign: "center", fontWeight: "bold" },
 });
